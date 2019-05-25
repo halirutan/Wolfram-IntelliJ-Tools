@@ -3,12 +3,11 @@
 (* :Author: patrick *)
 (* :Date: 2019-05-25 *)
 
-
 Export[
   FileNameJoin[
     {
       DirectoryName@System`Private`$InputFileName,
-      ToString[$VersionNumber] <> "-symbols.m"
+      ToString[$VersionNumber] <> "-symbols.txt"
     }
   ],
   Sort[
@@ -19,5 +18,6 @@ Export[
               Names[RegularExpression[context <> "\$?[A-Z]\\w*"]
               ]
         ]
-      ] /@ {"System`", "Developer`", "Internal`"}]]
+      ] /@ {"System`", "Developer`", "Internal`"}]],
+  "Package"
 ]

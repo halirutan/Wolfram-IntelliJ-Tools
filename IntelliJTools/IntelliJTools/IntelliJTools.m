@@ -325,3 +325,204 @@ createNamedCharacterLexerTokens[pluginProjectPath_String /; DirectoryQ[pluginPro
 ];
 
 
+(* ::Section:: *)
+(* Creating html usage messages *)
+
+(*	Here we replace Mathematica box expressions with HTML constructs. If we lack of some things we just use a
+	a string representation like with UnderscriptBox *)
+$boxRules = {
+  StyleBox[f_, "TI"] :> {"<em>", f, "</em>"},
+  StyleBox[f_, ___] :> {f},
+  RowBox[l_] :> {l},
+  SubscriptBox[a_, b_] :> {a, "<sub>", b, "</sub>"},
+  SuperscriptBox[a_, b_] :> {a, "<sup>", b, "</sup>"},
+  RadicalBox[x_, n_] :> {x, "<sup>1/", n, "</sup>"},
+  FractionBox[a_, b_] :> {"(", a, ")/(", b, ")"},
+  SqrtBox[a_] :> {"&radic;(", a, ")"},
+  CheckboxBox[a_, ___] :> {"<u>", a, "</u>"},
+  OverscriptBox[a_, b_] :> {"Overscript[", a, b, "]"},
+  OpenerBox[a__] :> {"Opener[", a, "]"},
+  RadioButtonBox[a__] :> {"RadioButton[", a, "]"},
+  UnderscriptBox[a_, b_] :> {"Underscript[", a, b, "]"},
+  UnderoverscriptBox[a_, b_, c_] :> {"Underoverscript[", a, b, c,
+    "]"},
+  SubsuperscriptBox[a_, b_, c_] :> {a, "<sub><small>", b,
+    "</small></sub><sup><small>", c, "</small></sup>"}
+};
+
+(* ::Section:: *)
+(* Create HTML usage help messages *)
+
+(* The situation is weird. On Linux there are some symbols that are not displayed correctly, like &#10869; while *)
+(* on other systems this works fine. I will only fix very few since it should work in general *)
+$specialHtmlCharacterRules = {
+  "<>" -> "&lt;&gt;",
+  "&#62754;" -> "&rarr;",
+  "&#61715;" -> "&lt;&#x7c;",
+  "&#61716;" -> "&#x7c;&gt;",
+  "&#10740;" -> ":>",
+  "&#10869;" -> "=="
+};
+
+$referenceURL = "http://reference.wolfram.com/language/";
+$searchURL = "http://reference.wolfram.com/search/?q=";
+
+
+(*	Repeatedly replacing box expressions until nothing is left, then we join everything into a big String *)
+convertBoxExpressionToHTML[boxExpr_] := StringJoin[ToString /@ Flatten[ReleaseHold[MakeExpression[boxExpr] //. $boxRules]]];
+
+(* 	We need to take care to not evaluate symbols like Black (which is ev to RGBColor[0,0,0]) before we extract the
+	usage message.
+*)
+hasUsage[str_] := With[{usg = ToExpression[str, InputForm, Function[s, MessageName[s, "usage"], HoldFirst]]},
+  Head[usg] =!= MessageName
+];
+
+getUsage[str_] := With[{usg = ToExpression[str, InputForm, Function[s, MessageName[s, "usage"], HoldFirst]]},
+  If[Head[usg] =!= MessageName,
+    usg, ""
+  ]
+];
+
+extractUsage[str_] := With[{usg = Function[expr, expr::usage, HoldAll] @@ MakeExpression[str]},
+  If[Head[usg] === String, usg, ""]];
+
+extractUsage[str_String, context_String] :=
+    With[{usg =
+        Function[expr, expr::usage, HoldAll] @@
+            MakeExpression[context <> str, StandardForm]},
+      If[Head[usg] === String, usg, ""]];
+
+replaceNestedStyleString[str_] := StringReplace[
+  str,
+  {Shortest["\\\"\\!\\(\\*StyleBox[\\\"" ~~ name__ ~~ "\\\"" ~~ __ ~~ "\\_" ~~ n_ ~~ "\\)\\\""] :>
+      "&quot;<em>" ~~ name ~~ "<sub>" ~~ n ~~ "</sub></em>&quot;",
+    Shortest["\\\"\\!\\(\\*StyleBox[\\\"" ~~ name__ ~~ "\\\"" ~~ __ ~~ "\\)\\\""] :>
+        "&quot;<em>" ~~ name ~~ "</em>&quot;"
+  }];
+
+namedCharacterQ[str_String] :=
+    StringMatchQ[ToString@FullForm[str], "\"\\[" ~~ __ ~~ "]\""];
+
+fixNamedCharacterLink[str_] := {StringReplace[
+  ToString@FullForm[str], {"\"" :> "", "\\" -> "\\\\"}],
+  StringReplace[
+    ToString@FullForm[str], {"\"" :> "", "\\[" ~~ c__ ~~ "]" :> c}]};
+
+createLinkName[s_] := If[StringMatchQ[ToString@FullForm[s], "\"\\[" ~~ __ ~~ "]\""],
+  {
+    StringReplace[ToString@FullForm[s], {"\"" :> "", "\\" -> "\\\\"}],
+    StringReplace[ToString@FullForm[s], {"\"" :> "", "\\[" ~~ c__ ~~ "]" :> "character/" ~~ c}]
+  },
+  {s, s}
+];
+
+replaceNestedStyleString[str_] := StringReplace[str,
+  Shortest["\\\"\\!\\(\\*StyleBox[\\\"" ~~ name__ ~~ "\\\"" ~~ __ ~~
+      "\\_" ~~ n_ ~~ "\\)\\\""] :>
+      "\\\"<em>" ~~ name ~~ "<sub>" ~~ n ~~ "</sub></em>\\\""];
+
+
+createOnlineLink[symbol_String, context_String, checkUrl_] := Module[
+  {charPart = "", middle, symbolPart, linkName, finalLink,
+    root = $referenceURL},
+  If[namedCharacterQ[symbol],
+    {linkName, symbolPart} = fixNamedCharacterLink[symbol];
+    charPart = "character/",
+    {linkName, symbolPart} = {symbol, symbol}
+  ];
+
+  If[
+    context === "System`",
+    middle = "",
+    middle = StringDrop[context, -1] <> "/"
+  ];
+  finalLink =
+      root <> middle <> "ref/" <> charPart <> symbolPart <> ".html";
+  If[TrueQ[checkUrl] && URLFetch[finalLink, "StatusCode"] === 404,
+    finalLink =
+        $searchURL <> linkName
+  ];
+
+
+  {symbolPart,
+    "<a href=\"" <> finalLink <> "\">" <> linkName <> "</a>"}
+];
+
+
+createOptionString[s_] := With[{opts = Function[expr, Options[Unevaluated[expr]], HoldAll] @@ MakeExpression[s]},
+  If[opts === {},
+    "<p><b>Symbol has no options.</b></p>",
+    "<p><b>Options: </b>" <> StringJoin@Riffle[ToString[First[#]] & /@ opts, ", "] <> "</p>"
+  ]
+];
+
+convertUsageStringToHTML[usg_] := Module[{},
+  Quiet@Check[
+    StringSplit[
+      StringReplace[StringReplace[
+        StringReplace[
+          usg, {Shortest["\!\(\*" ~~ content__ ~~ "\)"] :>
+            StringReplace[
+              convertBoxExpressionToHTML[StringReplace[replaceNestedStyleString[content], "\n" :> ""]],
+              "<>" -> "&lt;&gt;"] }], {
+
+          "\[Null]" :> "",
+          a_?(StringMatchQ[ToString@FullForm[#], "\"\\[" ~~ __ ~~ "]\""] &) :> StringReplace[ToString[a, MathMLForm], {WhitespaceCharacter :> ""}]}
+      ], $specialHtmlCharacterRules], "\n"],
+    ""
+  ]
+];
+
+Options[CreateHTMLUsageString] = {
+  "CheckURL" -> False
+};
+
+PackageExport["CreateHTMLUsageString"]
+CreateHTMLUsageString[s_String, context_String, OptionsPattern[]] := Module[{
+  usg = extractUsage[s, context],
+  attr = With[{full = context <> s}, Attributes[full]],
+  link, name, html},
+
+  {name, link} = createOnlineLink[s, context, OptionValue["CheckURL"]];
+  html = Quiet[Check[convertUsageStringToHTML[usg], usg]];
+  {name, StringJoin[
+    "<h3>", link, "</h3>",
+    If[usg =!= "",
+      "<ul><li>" <> convertUsageStringToHTML[usg] <> "</ul>",
+      ""
+    ],
+    "<p><b>Attributes:</b>",
+    StringJoin[ToString /@ Riffle[attr, ", "]],
+    "</p>",
+    createOptionString[s]
+  ]}
+];
+
+PackageExport["CreateHtmlUsageForContextSymbol"]
+CreateHtmlUsageForContextSymbol[path_String] := Module[
+  {
+    outPath,
+    context,
+    symbol
+  },
+  Do[
+    context = Context[Evaluate[name]];
+    symbol = StringDelete[#, Context[#]] &[name];
+    outPath = FileNameJoin[{path, StringDrop[context, -1]}];
+    If[! DirectoryQ[outPath],
+      CreateDirectory[outPath]
+    ];
+
+    With[
+      {
+        file = FileNameJoin[{outPath, symbol <> ".html"}]
+      },
+      If[
+        Not[TrueQ@FileExistsQ[file]],
+        With[{res = CreateHTMLUsageString[symbol, context]},
+          Export[file, res[[2]], "Text"];
+        ]
+      ]
+    ], {name, $versionedNames}];
+];
