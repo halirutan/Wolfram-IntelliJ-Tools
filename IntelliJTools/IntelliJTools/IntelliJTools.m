@@ -16,14 +16,13 @@ Package["IntelliJTools`"]
 PackageImport["JLink`"]
 
 JLink`LoadJavaClass["de.halirutan.wlintellij.Utils"];
-
+$directory = DirectoryName@System`Private`$InputFileName;
 $publicUnicodeArea = Join[Range[16^^E000 - 1], Range[16^^F8FF + 1, 16^^FFFF]];
 
 ClearAll[
   $packageMacros,
   $contexts,
   $builtInNames,
-  $existingSymbolVersions,
   $allNames,
   $additionalSymbols
 ];
@@ -34,6 +33,7 @@ getContextNames[context_String] := Block[{$ContextPath = {context}},
 getStrippedContextNames[context_String] := Block[{$ContextPath = {context}},
   Names[RegularExpression[context <> "\$?[A-Z]\\w*"]]
 ];
+
 
 $packageMacros = {
   "Package",
@@ -75,8 +75,8 @@ $builtInNamedCharacters = {"\\[Degree]", "\\[Pi]", "\\[Infinity]", "\\[SystemsMo
   "\\[FormalBeta]", "\\[FormalGamma]", "\\[FormalDelta]",
   "\\[FormalCurlyEpsilon]", "\\[FormalZeta]", "\\[FormalEta]",
   "\\[FormalTheta]", "\\[FormalIota]", "\\[FormalKappa]",
-  "\\[FormalLambda]", "\\[FormalMu]", "\\[FormalNu]", "\\[FormalXi]", "\
-\\[FormalOmicron]", "\\[FormalPi]", "\\[FormalRho]",
+  "\\[FormalLambda]", "\\[FormalMu]", "\\[FormalNu]", "\\[FormalXi]",
+  "\\[FormalOmicron]", "\\[FormalPi]", "\\[FormalRho]",
   "\\[FormalFinalSigma]", "\\[FormalSigma]", "\\[FormalTau]",
   "\\[FormalUpsilon]", "\\[FormalCurlyPhi]", "\\[FormalChi]",
   "\\[FormalPsi]", "\\[FormalOmega]"};
@@ -87,7 +87,7 @@ $additionalSymbols = {
 
 $contexts = Sort[
   Join[
-    Select[Contexts[],
+    Select[DeleteCases[Contexts[], "Global`"],
       StringFreeQ[#, { "`Private`", "`PackagePrivate`", StartOfString ~~ _?LowerCaseQ ~~ ___, StartOfString ~~ "$" ~~ ___ }] &],
     {"System`Private`"}
   ]
@@ -96,15 +96,6 @@ $currentDir = DirectoryName@System`Private`$InputFileName;
 PackageExport["$builtInNames"]
 $builtInNames := Sort[Join[getStrippedContextNames["System`"], $packageMacros, $builtInNamedCharacters]];
 $allNames := Sort[Join[Flatten[getContextNames /@ $contexts], $additionalSymbols ]];
-
-$existingSymbolVersions := Association @@ Get[FileNameJoin[{$currentDir, "versionedSymbols.m"}]];
-
-PackageExport["$versionedNames"]
-$versionedNames = Sort[
-  Flatten[
-    getContextNames /@ {"System`", "Developer`", "Internal`"}
-  ]
-];
 
 (* For good code completion we need an ordering of all possible completions. This is done with the *)
 (* function frequency list that comes with Mathematica nowadays. I just assign numbers according to the *)
@@ -128,10 +119,6 @@ $functionInformation = With[{file = First[FileNames["SystemFiles/Kernel/TextReso
     {_String?namedCharacterQ, __},
     Infinity
   ]
-];
-
-getContextNames[context_String] := Block[{$ContextPath = {context}},
-  StringJoin[context, #]& /@ Names[RegularExpression[context <> "\$?[A-Z]\\w*"]]
 ];
 
 ClearAll[isFunction, getOptions, getAttributes];
@@ -193,10 +180,21 @@ SaveContexts[outputPath_String /; DirectoryQ[outputPath]] := Export[
   "JSON"
 ];
 
+(* Takes the symbol lists for all available Wolfram Language versions and *)
+combineSymbolVersion[] := Module[
+  {
+    files,
+    versions
+  },
+  files = FileNames["*.txt", {FileNameJoin[{$directory, "Resources"}]}];
+  versions = Get[#] -> ToExpression@StringReplace[FileBaseName[#], beg__ ~~ "-symbols" :> beg]& /@ files;
+  Merge[AssociationThread /@ versions, Identity]
+];
+
 PackageExport["SaveSymbolVersions"]
 SaveSymbolVersions[outputPath_String /; DirectoryQ[outputPath]] := Export[
   FileNameJoin[{outputPath, "SymbolVersions.json"}],
-  $existingSymbolVersions,
+  combineSymbolVersion[],
   "JSON"
 ];
 
@@ -498,6 +496,13 @@ CreateHTMLUsageString[s_String, context_String, OptionsPattern[]] := Module[{
     createOptionString[s]
   ]}
 ];
+
+$versionedNames := Sort[
+  Flatten[
+    getContextNames /@ {"System`", "Developer`", "Internal`"}
+  ]
+];
+
 
 PackageExport["CreateHtmlUsageForContextSymbol"]
 CreateHtmlUsageForContextSymbol[path_String] := Module[

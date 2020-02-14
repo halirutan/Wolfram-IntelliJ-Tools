@@ -1,4 +1,5 @@
 @file:JvmName("Utils")
+
 package de.halirutan.wlintellij
 
 import java.lang.RuntimeException
