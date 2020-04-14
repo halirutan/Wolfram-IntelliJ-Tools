@@ -5,9 +5,9 @@
 
 Paclet[
   Name -> "IntelliJTools",
-  Version -> "0.1",
+  Version -> "2020.0",
   MathematicaVersion -> "11+",
-  Description -> "",
+  Description -> "Provides functions to collect information about a Wolfram Mathematica system you are running.",
   Creator -> "Patrick Scheibe",
   Extensions ->
       {

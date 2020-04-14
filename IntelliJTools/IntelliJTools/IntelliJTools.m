@@ -531,3 +531,26 @@ CreateHtmlUsageForContextSymbol[path_String] := Module[
       ]
     ], {name, $versionedNames}];
 ];
+
+(* ::Section:: *)
+(* Create Dictionary *)
+
+isWord[word_] := UpperCaseQ[StringPart[word, 1]] && StringFreeQ[word, "$"] && StringLength[word] > 2;
+processWord[word_] := DeleteDuplicates@Flatten[
+  StringCases[word, _?UpperCaseQ ~~ __?LowerCaseQ]
+];
+
+getNames[context_String] := Module[{names = Names[context <> "*"]},
+  names =
+      Select[StringReplace[names, context ~~ name__ :> name], isWord];
+  processWord[names]
+];
+
+PackageExport["SaveDictionary"]
+SaveDictionary[outputPath_String /; DirectoryQ[outputPath]] := Module[
+  {
+    names
+  },
+  names = Select[DeleteDuplicates@Sort[Flatten[getNames /@ Contexts[]]], Not[DictionaryWordQ[#]] &];
+  Export[FileNameJoin[{outputPath, "WLDictionary.dic"}], names, "List"]
+]
