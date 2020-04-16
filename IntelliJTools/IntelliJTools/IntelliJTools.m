@@ -6,14 +6,16 @@
 (* :Author: Patrick Scheibe *)
 (* :Date: 2018-09-30 *)
 
-(* :Package Version: 0.1 *)
-(* :Mathematica Version: 11.3 *)
-(* :Copyright: (c) 2018 Patrick Scheibe *)
+(* :Copyright: (c) 2018-2020 Patrick Scheibe *)
 (* :Keywords: *)
 (* :Discussion: *)
 
 Package["IntelliJTools`"]
 PackageImport["JLink`"]
+JLink`InstallJava[];
+
+(* ::Section:: *)
+(* Initialization of symbol and context lists *)
 
 JLink`LoadJavaClass["de.halirutan.wlintellij.Utils"];
 $directory = DirectoryName@System`Private`$InputFileName;
@@ -93,9 +95,15 @@ $contexts = Sort[
   ]
 ];
 $currentDir = DirectoryName@System`Private`$InputFileName;
+
+(* Note, this is done during package loading so that $allNames is fixed before we do crazy shit with the system. *)
+(* Especially, loading the auto-loadable symbols will introduce new System symbols (bug in Mma) and other stuff. *)
 PackageExport["$builtInNames"]
-$builtInNames := Sort[Join[getStrippedContextNames["System`"], $packageMacros, $builtInNamedCharacters]];
-$allNames := Sort[Join[Flatten[getContextNames /@ $contexts], $additionalSymbols ]];
+$builtInNames = Sort[Join[getStrippedContextNames["System`"], $packageMacros, $builtInNamedCharacters]];
+$allNames = Sort[Join[Flatten[getContextNames /@ $contexts], $additionalSymbols ]];
+
+(* ::Section:: *)
+(* Methods for extracting symbol information *)
 
 (* For good code completion we need an ordering of all possible completions. This is done with the *)
 (* function frequency list that comes with Mathematica nowadays. I just assign numbers according to the *)
@@ -121,7 +129,42 @@ $functionInformation = With[{file = First[FileNames["SystemFiles/Kernel/TextReso
   ]
 ];
 
+(* Some symbols are not loaded by default and therefore checking, e.g. if they are a function will fail. *)
+(* Here, we try to test for that and load symbols that are not loaded by default. *)
+ClearAll[autoloadQ, carefullyLoad];
+
+Attributes[autoloadQ] = {HoldAll};
+autoloadQ[sym_Symbol] := With[
+  {
+    ov = Quiet[OwnValues[sym], {General::readp}]
+  },
+  ov =!= $Failed && ov =!= {} && Extract[ov, {1, 2, 0}, Hold] === Hold[Package`ActivateLoad]
+];
+autoloadQ[str_String] := ToExpression[str, InputForm, autoloadQ];
+
+Attributes[carefullyLoad] = {HoldAll};
+carefullyLoad[sym_Symbol] /; autoloadQ[sym] := With[
+  {
+    ov = Quiet[OwnValues[sym], {General::readp}]
+  },
+  With[
+    {
+      loader = Extract[ov, {1, 2}, Hold]
+    },
+    (* Below, we replace to symbol to be loaded with something else to prevent that it will be evaluated in the *)
+    (* process. Therefore, "Times" could be anything that doesn't do harm. To give an example: System`$MobilePhone is *)
+    (* an auto-loaded symbol which means the OwnValues will contain the code to load all necessary parts. We do not know *)
+    (* if it's a function or a variable yet, but if we "touch" the symbol $MobilePhone or evaluate the auto-loading code *)
+    (* it will also evaluate $MobilePhone on the way which accesses the internet and takes a long time. *)
+    (* We want to load the definitions for $MobilePhone without evaluating it. Therefore, we place a dummy symbol in the *)
+    (* auto-loading code which will load all necessary packages but only evaluate "Times". *)
+    First@ReplacePart[loader, {1, 1} -> Times]
+  ]
+];
+carefullyLoad[str_String] := ToExpression[str, InputForm, carefullyLoad];
+
 ClearAll[isFunction, getOptions, getAttributes];
+isFunction[symbol_String /; autoloadQ[symbol]] := (carefullyLoad[symbol]; isFunction[symbol]);
 isFunction[symbol_String] := Not[TrueQ[Quiet@ToExpression[symbol, InputForm, ValueQ]]];
 getOptions[symbol_String /; isFunction[symbol]] := Quiet@Keys[ToExpression[symbol, InputForm, Options]];
 getOptions[__] := {};
@@ -348,9 +391,6 @@ $boxRules = {
     "</small></sub><sup><small>", c, "</small></sup>"}
 };
 
-(* ::Section:: *)
-(* Create HTML usage help messages *)
-
 (* The situation is weird. On Linux there are some symbols that are not displayed correctly, like &#10869; while *)
 (* on other systems this works fine. I will only fix very few since it should work in general *)
 $specialHtmlCharacterRules = {
@@ -504,8 +544,8 @@ $versionedNames := Sort[
 ];
 
 
-PackageExport["CreateHtmlUsageForContextSymbol"]
-CreateHtmlUsageForContextSymbol[path_String] := Module[
+PackageExport["CreateAllHtmlUsageMessages"]
+CreateAllHtmlUsageMessages[path_String] := Module[
   {
     outPath,
     context,
@@ -534,6 +574,15 @@ CreateHtmlUsageForContextSymbol[path_String] := Module[
 
 (* ::Section:: *)
 (* Create Dictionary *)
+
+(* ::Text:: *)
+(* We ship the Wolfram Language Plugin with a custom dictionary. This prevents any of the Mathematica functions
+ being highlighted by the spell-check. The dictionary is quite small since IntelliJ works with Camel-Case.
+ Therefore, to ensure that, e.g. FeatureExtractorFunction is a valid word, we need to verify that Feature, Extractor,
+ and Function are valid words. This leaves only a small number of words we need to ship in the dictionary. *)
+
+(* ::Text:: *)
+(* Note: The dictionary needs to be cleaned after creation since there are some typos like "Tranparency" *)
 
 isWord[word_] := UpperCaseQ[StringPart[word, 1]] && StringFreeQ[word, "$"] && StringLength[word] > 2;
 processWord[word_] := DeleteDuplicates@Flatten[

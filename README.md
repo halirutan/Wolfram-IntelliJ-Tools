@@ -12,8 +12,9 @@ the Wolfram Language IntelliJ Plugin to provide
 
 ## Usage
 
-Note that package functions will take some time to finish since they are extracting information from many thousand
-Mathematica symbols. To create JSON files used for autocompletion and version checks, you can run the following in
+Note that **loading the package** and **package functions** will take some time to finish since they are extracting
+information from many thousand Mathematica symbols.
+To create JSON files used for autocompletion and version checks, you can run the following in
 Mathematica 12.1:
 
 ```wl
@@ -26,7 +27,7 @@ SaveCompleteMathematicaInformation["/existing/output/directory"]
 To create HTML pages for usage messages of Mathematica functions, you can run
 
 ```wl
-CreateHtmlUsageForContextSymbol["/existing/output/directory"]
+CreateAllHtmlUsageMessages["/existing/output/directory"]
 ```
 
 Note that this code relies on quite some hacks because it tries to convert usage message strings into HTML/MathML and 
