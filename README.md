@@ -24,6 +24,8 @@ Needs["IntelliJTools`"]
 SaveCompleteMathematicaInformation["/existing/output/directory"]
 ```
 
+### Creating Usage message help pages
+
 To create HTML pages for usage messages of Mathematica functions, you can run
 
 ```wl
@@ -31,8 +33,19 @@ CreateAllHtmlUsageMessages["/existing/output/directory"]
 ```
 
 Note that this code relies on quite some hacks because it tries to convert usage message strings into HTML/MathML and 
-preserve basic mathematical formatting. At the moment it throws an error, but seems to do its job. Further investigation
-is necessary.
+preserve basic mathematical formatting. The algorithm works as follows:
+
+1. Create the box representation of the styled usage message strings with `createBoxes`
+2. Transform the boxes into HTML/MathML by converting all box-expressions with `box2HTML`
+3. Fix the underlying strings to create real UTF characters from Mathematica's named characters if possible with `processString`
+4. Put everything together by including a link to the online help, Options, and Attributes with `CreateHTMLUsageString`
+5. In `CreateAllHtmlUsageMessages` all symbols from important contexts are processed and stored in single HTML files.
+
+For debugging, check the output of `createBoxes[symName]` and use it with `box2HTML` to ensure the usage message text is converted correctly.
+
+
+
+### Creating custom Mathematica dictionary
 
 To create the spell-check dictionary, you can run
 

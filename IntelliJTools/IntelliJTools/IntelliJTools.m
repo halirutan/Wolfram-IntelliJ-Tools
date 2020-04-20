@@ -24,7 +24,8 @@ $publicUnicodeArea = Join[Range[16^^E000 - 1], Range[16^^F8FF + 1, 16^^FFFF]];
 ClearAll[
   $packageMacros,
   $contexts,
-  $builtInNames,
+  $builtInSymbols,
+  $documentedSymbols,
   $allNames,
   $additionalSymbols
 ];
@@ -98,9 +99,10 @@ $currentDir = DirectoryName@System`Private`$InputFileName;
 
 (* Note, this is done during package loading so that $allNames is fixed before we do crazy shit with the system. *)
 (* Especially, loading the auto-loadable symbols will introduce new System symbols (bug in Mma) and other stuff. *)
-PackageExport["$builtInNames"]
-$builtInNames = Sort[Join[getStrippedContextNames["System`"], $packageMacros, $builtInNamedCharacters]];
-$allNames = Sort[Join[Flatten[getContextNames /@ $contexts], $additionalSymbols ]];
+$builtInSymbols = Sort[Join[getStrippedContextNames["System`"], $packageMacros, $builtInNamedCharacters]];
+PackageExport["$documentedSymbols"]
+$documentedSymbols = Sort[Join[Flatten[getContextNames /@ {"System`", "Developer`", "Internal`"}]]];
+$allNames := Sort[Join[Flatten[getContextNames /@ $contexts], $additionalSymbols ]];
 
 (* ::Section:: *)
 (* Methods for extracting symbol information *)
@@ -164,15 +166,18 @@ carefullyLoad[sym_Symbol] /; autoloadQ[sym] := With[
 carefullyLoad[str_String] := ToExpression[str, InputForm, carefullyLoad];
 
 ClearAll[isFunction, getOptions, getAttributes];
+PackageExport["isFunction"]
 isFunction[symbol_String /; autoloadQ[symbol]] := (carefullyLoad[symbol]; isFunction[symbol]);
 isFunction[symbol_String] := Not[TrueQ[Quiet@ToExpression[symbol, InputForm, ValueQ]]];
+PackageExport["getOptions"]
 getOptions[symbol_String /; isFunction[symbol]] := Quiet@Keys[ToExpression[symbol, InputForm, Options]];
 getOptions[__] := {};
+PackageExport["getAttributes"]
 getAttributes[symbol_String /; isFunction[symbol]] := With[
   {
     result = Quiet@ToExpression[symbol, InputForm, Attributes]
   },
-  result /; Head[result === List]
+  result /; Head[result] === List
 ];
 getAttributes[__] := {};
 getImportance[symbol_String] := ToExpression[(symbol /. $functionFrequency)];
@@ -244,7 +249,7 @@ SaveSymbolVersions[outputPath_String /; DirectoryQ[outputPath]] := Export[
 PackageExport["SaveSystemSymbols"]
 SaveSystemSymbols[outputPath_String /; DirectoryQ[outputPath]] := Export[
   FileNameJoin[{outputPath, "SystemSymbolNames.json"}],
-  $builtInNames,
+  $builtInSymbols,
   "JSON"
 ];
 
@@ -369,78 +374,80 @@ createNamedCharacterLexerTokens[pluginProjectPath_String /; DirectoryQ[pluginPro
 (* ::Section:: *)
 (* Creating html usage messages *)
 
-(*	Here we replace Mathematica box expressions with HTML constructs. If we lack of some things we just use a
-	a string representation like with UnderscriptBox *)
-$boxRules = {
-  StyleBox[f_, "TI"] :> {"<em>", f, "</em>"},
-  StyleBox[f_, ___] :> {f},
-  RowBox[l_] :> {l},
-  SubscriptBox[a_, b_] :> {a, "<sub>", b, "</sub>"},
-  SuperscriptBox[a_, b_] :> {a, "<sup>", b, "</sup>"},
-  RadicalBox[x_, n_] :> {x, "<sup>1/", n, "</sup>"},
-  FractionBox[a_, b_] :> {"(", a, ")/(", b, ")"},
-  SqrtBox[a_] :> {"&radic;(", a, ")"},
-  CheckboxBox[a_, ___] :> {"<u>", a, "</u>"},
-  OverscriptBox[a_, b_] :> {"Overscript[", a, b, "]"},
-  OpenerBox[a__] :> {"Opener[", a, "]"},
-  RadioButtonBox[a__] :> {"RadioButton[", a, "]"},
-  UnderscriptBox[a_, b_] :> {"Underscript[", a, b, "]"},
-  UnderoverscriptBox[a_, b_, c_] :> {"Underoverscript[", a, b, c,
-    "]"},
-  SubsuperscriptBox[a_, b_, c_] :> {a, "<sub><small>", b,
-    "</small></sub><sup><small>", c, "</small></sup>"}
-};
-
-(* The situation is weird. On Linux there are some symbols that are not displayed correctly, like &#10869; while *)
-(* on other systems this works fine. I will only fix very few since it should work in general *)
-$specialHtmlCharacterRules = {
-  "<>" -> "&lt;&gt;",
-  "&#62754;" -> "&rarr;",
-  "&#61715;" -> "&lt;&#x7c;",
-  "&#61716;" -> "&#x7c;&gt;",
-  "&#10740;" -> ":>",
-  "&#10869;" -> "=="
-};
-
-$referenceURL = "http://reference.wolfram.com/language/";
-$searchURL = "http://reference.wolfram.com/search/?q=";
-
-
-(*	Repeatedly replacing box expressions until nothing is left, then we join everything into a big String *)
-convertBoxExpressionToHTML[boxExpr_] := StringJoin[ToString /@ Flatten[ReleaseHold[MakeExpression[boxExpr] //. $boxRules]]];
-
-(* 	We need to take care to not evaluate symbols like Black (which is ev to RGBColor[0,0,0]) before we extract the
-	usage message.
-*)
-hasUsage[str_] := With[{usg = ToExpression[str, InputForm, Function[s, MessageName[s, "usage"], HoldFirst]]},
-  Head[usg] =!= MessageName
-];
-
-getUsage[str_] := With[{usg = ToExpression[str, InputForm, Function[s, MessageName[s, "usage"], HoldFirst]]},
-  If[Head[usg] =!= MessageName,
-    usg, ""
+PackageExport["createBoxes"]
+createBoxes::usage = "createBoxes[symbolName] converts the usage message of symbol into its box form.";
+createBoxes[symbolName_String] := Module[
+  {
+    boxes = Quiet@FrontEndExecute[FrontEnd`ReparseBoxStructurePacket[
+      ToExpression[symbolName, InputForm, Function[Null, MessageName[Unevaluated[#], "usage"], {HoldAll}]]
+    ]]
+  },
+  If[Head[boxes] =!= MessageName && boxes =!= "",
+    boxes,
+    RowBox[{"No", " ", "Usage", " ", "message", " ", "available."}]
   ]
 ];
 
-extractUsage[str_] := With[{usg = Function[expr, expr::usage, HoldAll] @@ MakeExpression[str]},
-  If[Head[usg] === String, usg, ""]];
+wrapMathML[l_List] := Join[{"<math>"}, l, {"</math>"}];
 
-extractUsage[str_String, context_String] :=
-    With[{usg =
-        Function[expr, expr::usage, HoldAll] @@
-            MakeExpression[context <> str, StandardForm]},
-      If[Head[usg] === String, usg, ""]];
+ClearAll[box2HTML];
+PackageExport["box2HTML"]
+box2HTML::usage = "box2HTML[boxes] attempts to convert the box-form of usage messages into renderable HTML/MathML code";
+box2HTML[l_List] := box2HTML /@ l;
+box2HTML[str_String] := processString[str];
+box2HTML[str_String /; StringMatchQ[str, "\"\!\(\*" ~~ ___ ~~ "\)\""]] := "$BOXERROR$";
+box2HTML[StyleBox[f_, "TI" | FontSlant -> "Italic"]] := {"<em>", box2HTML[f], "</em>"};
+box2HTML[StyleBox[f_, ___]] := box2HTML[f];
+box2HTML[RowBox[l_] ] := box2HTML[l];
+box2HTML[RadicalBox[x_, n_]] := {box2HTML[x], "<sup>1/", box2HTML[n], "</sup>"};
+box2HTML[FractionBox[a_, b_]] := {"(", box2HTML[a], ")/(", box2HTML[b], ")"};
+box2HTML[SqrtBox[a_]] := {"&radic;(", box2HTML[a], ")"};
+box2HTML[CheckboxBox[False]] := {"&#x2610;"};
+box2HTML[CheckboxBox[___]] := {"&#x2611;"};
+box2HTML[OpenerBox[True]] := {"&#9662;"}; (* HTML char for triangle down *)
+box2HTML[OpenerBox[False]] := {"&#9656;"}; (* HTML char for triangle right *)
+box2HTML[RadioButtonBox[a_, {a_}]] := {"&#x1F518;"}; (* HTML char for checked radio button *)
+box2HTML[RadioButtonBox[___]] := {"&#9675;"}; (* HTML char for empty circle *)
+box2HTML[SubscriptBox[a_, b_]] := {box2HTML[a], "<sub>", box2HTML[b], "</sub>"};
+box2HTML[SuperscriptBox[a_, b_, ___]] := {box2HTML[a], "<sup>", box2HTML[b], "</sup>"};
+box2HTML[UnderscriptBox[a_, b_, ___]] := {"Underscript[", box2HTML[a], box2HTML[b], "]"};
+box2HTML[OverscriptBox[a_, b_, ___]] := {"Overscript[", box2HTML[a], box2HTML[b], "]"};
+box2HTML[UnderoverscriptBox[a_, b_, c_, ___]] := {"Underoverscript[", box2HTML[a], box2HTML[b], box2HTML[c], "]"};
+box2HTML[SubsuperscriptBox[a_, b_, c_, ___]] := wrapMathML@{"<msubsup>", "<mo>", box2HTML[a], "</mo>", "<mn>", box2HTML[b], "</mn>", "<mn>", box2HTML[c], "</mn>", "</msubsup>" };
+box2HTML[TagBox[f_, __]] := box2HTML[f];
+box2HTML[TemplateBox[l_List, id_]] := {box2HTML[id], "[", box2HTML[l], "]"};
+box2HTML[GridBox[m_]] := wrapMathML@{"<mtable>", {"<mtr>", #, "</mtr>"}& /@ Map[{"<mtd>", box2HTML[#], "</mtd>"}&, box2HTML[m], {2}], "</mtable>"};
+box2HTML[Cell[BoxData[data__], ___]] := box2HTML[{data}];
+box2HTML[TooltipBox[expr_, ___]] := box2HTML[expr];
 
-replaceNestedStyleString[str_] := StringReplace[
-  str,
-  {Shortest["\\\"\\!\\(\\*StyleBox[\\\"" ~~ name__ ~~ "\\\"" ~~ __ ~~ "\\_" ~~ n_ ~~ "\\)\\\""] :>
-      "&quot;<em>" ~~ name ~~ "<sub>" ~~ n ~~ "</sub></em>&quot;",
-    Shortest["\\\"\\!\\(\\*StyleBox[\\\"" ~~ name__ ~~ "\\\"" ~~ __ ~~ "\\)\\\""] :>
-        "&quot;<em>" ~~ name ~~ "</em>&quot;"
-  }];
+ClearAll[processString];
+PackageExport["processString"]
+processString[">"] = "&gt;";
+processString["<"] = "&lt;";
+processString["\[Rule]"] = "&rarr;";
+processString["\[RuleDelayed]"] = ":>";
+processString["\[Ellipsis]"] = "...";
+processString["\[LeftAssociation]"] = "<|";
+processString["\[RightAssociation]"] = "|>";
+processString["\[LongEqual]"] = "==";
+processString["\[Null]"] = "";
+processString["\[InvisibleSpace]"] = "";
 
-namedCharacterQ[str_String] :=
-    StringMatchQ[ToString@FullForm[str], "\"\\[" ~~ __ ~~ "]\""];
+(* If it's a named character and in the public unicode range, we can transform it to the real representation *)
+(* So an \[alpha] is shown as a real alpha. Otherwise, we ensure it's rendered as \[name] *)
+processString[c_String /; StringLength[c] === 1 && namedCharacterQ[c]] := If[
+  MemberQ[$publicUnicodeArea, First[ToCharacterCode[c]]],
+  ToString[c, MathMLForm],
+  ToString[c, InputForm, CharacterEncoding -> "PrintableASCII"]
+];
+processString[str_String] := str;
+processString[___] := Throw["Non-string argument in processString."];
+
+PackageExport["testConversion"]
+testConversion[sym_String] := box2HTML[createBoxes[sym]];
+
+$referenceURL = "http://reference.wolfram.com/language/";
+$searchURL = "http://reference.wolfram.com/search/?q=";
 
 fixNamedCharacterLink[str_] := {StringReplace[
   ToString@FullForm[str], {"\"" :> "", "\\" -> "\\\\"}],
@@ -454,12 +461,6 @@ createLinkName[s_] := If[StringMatchQ[ToString@FullForm[s], "\"\\[" ~~ __ ~~ "]\
   },
   {s, s}
 ];
-
-replaceNestedStyleString[str_] := StringReplace[str,
-  Shortest["\\\"\\!\\(\\*StyleBox[\\\"" ~~ name__ ~~ "\\\"" ~~ __ ~~
-      "\\_" ~~ n_ ~~ "\\)\\\""] :>
-      "\\\"<em>" ~~ name ~~ "<sub>" ~~ n ~~ "</sub></em>\\\""];
-
 
 createOnlineLink[symbol_String, context_String, checkUrl_] := Module[
   {charPart = "", middle, symbolPart, linkName, finalLink,
@@ -482,33 +483,15 @@ createOnlineLink[symbol_String, context_String, checkUrl_] := Module[
         $searchURL <> linkName
   ];
 
-
   {symbolPart,
     "<a href=\"" <> finalLink <> "\">" <> linkName <> "</a>"}
 ];
 
 
-createOptionString[s_] := With[{opts = Function[expr, Options[Unevaluated[expr]], HoldAll] @@ MakeExpression[s]},
+createOptionString[s_String] := With[{opts = getOptions[s]},
   If[opts === {},
     "<p><b>Symbol has no options.</b></p>",
-    "<p><b>Options: </b>" <> StringJoin@Riffle[ToString[First[#]] & /@ opts, ", "] <> "</p>"
-  ]
-];
-
-convertUsageStringToHTML[usg_] := Module[{},
-  Quiet@Check[
-    StringSplit[
-      StringReplace[StringReplace[
-        StringReplace[
-          usg, {Shortest["\!\(\*" ~~ content__ ~~ "\)"] :>
-            StringReplace[
-              convertBoxExpressionToHTML[StringReplace[replaceNestedStyleString[content], "\n" :> ""]],
-              "<>" -> "&lt;&gt;"] }], {
-
-          "\[Null]" :> "",
-          a_?(StringMatchQ[ToString@FullForm[#], "\"\\[" ~~ __ ~~ "]\""] &) :> StringReplace[ToString[a, MathMLForm], {WhitespaceCharacter :> ""}]}
-      ], $specialHtmlCharacterRules], "\n"],
-    ""
+    "<p><b>Options: </b>" <> StringJoin@Riffle[ToString/@opts, ", "] <> "</p>"
   ]
 ];
 
@@ -517,32 +500,28 @@ Options[CreateHTMLUsageString] = {
 };
 
 PackageExport["CreateHTMLUsageString"]
-CreateHTMLUsageString[s_String, context_String, OptionsPattern[]] := Module[{
-  usg = extractUsage[s, context],
-  attr = With[{full = context <> s}, Attributes[full]],
-  link, name, html},
+CreateHTMLUsageString[s_String, context_String, OptionsPattern[]] := Module[
+  {
+    usg = Flatten[box2HTML[createBoxes[context <> s]]],
+    attr = getAttributes[context <> s],
+    link,
+    name,
+    htmlUsg
+  },
 
   {name, link} = createOnlineLink[s, context, OptionValue["CheckURL"]];
-  html = Quiet[Check[convertUsageStringToHTML[usg], usg]];
-  {name, StringJoin[
+  htmlUsg = {"<li>", #, "</li>"}& /@ DeleteCases[SplitBy[usg, (# =!= "\n")&], {"\n"}];
+  {name, StringJoin[Flatten@{
     "<h3>", link, "</h3>",
-    If[usg =!= "",
-      "<ul><li>" <> convertUsageStringToHTML[usg] <> "</ul>",
-      ""
-    ],
-    "<p><b>Attributes:</b>",
+    "<ul>",
+    htmlUsg,
+    "</ul>",
+    "<p><b>Attributes: </b>",
     StringJoin[ToString /@ Riffle[attr, ", "]],
     "</p>",
-    createOptionString[s]
+    createOptionString[context <> s]}
   ]}
 ];
-
-$versionedNames := Sort[
-  Flatten[
-    getContextNames /@ {"System`", "Developer`", "Internal`"}
-  ]
-];
-
 
 PackageExport["CreateAllHtmlUsageMessages"]
 CreateAllHtmlUsageMessages[path_String] := Module[
@@ -552,6 +531,7 @@ CreateAllHtmlUsageMessages[path_String] := Module[
     symbol
   },
   Do[
+    (* Need an evaluate here or we get the context of the Do variable *)
     context = Context[Evaluate[name]];
     symbol = StringDelete[#, Context[#]] &[name];
     outPath = FileNameJoin[{path, StringDrop[context, -1]}];
@@ -565,11 +545,15 @@ CreateAllHtmlUsageMessages[path_String] := Module[
       },
       If[
         Not[TrueQ@FileExistsQ[file]],
-        With[{res = CreateHTMLUsageString[symbol, context]},
-          Export[file, res[[2]], "Text"];
+        Check[
+          With[{res = CreateHTMLUsageString[symbol, context]},
+            Export[file, res[[2]], "Text"];
+          ],
+          Throw["Shit " <> name <> " " <> context <> " " <> symbol]
         ]
+
       ]
-    ], {name, $versionedNames}];
+    ], {name, $documentedSymbols}];
 ];
 
 (* ::Section:: *)
