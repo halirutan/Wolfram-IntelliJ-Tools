@@ -388,7 +388,12 @@ createBoxes[symbolName_String] := Module[
   ]
 ];
 
-wrapMathML[l_List] := Join[{"<math>"}, l, {"</math>"}];
+$$insideMath = False;
+ClearAll[wrapMathML];
+PackageExport["wrapMathML"]
+SetAttributes[wrapMathML, {HoldFirst}];
+wrapMathML[l_List] /; Not[TrueQ[$$insideMath]] := Block[{$$insideMath = True}, Join[{"<math>"}, l, {"</math>"}]];
+wrapMathML[l_] := l;
 
 ClearAll[box2HTML];
 PackageExport["box2HTML"]
@@ -399,9 +404,9 @@ box2HTML[str_String /; StringMatchQ[str, "\"\!\(\*" ~~ ___ ~~ "\)\""]] := "$BOXE
 box2HTML[StyleBox[f_, "TI" | FontSlant -> "Italic"]] := {"<em>", box2HTML[f], "</em>"};
 box2HTML[StyleBox[f_, ___]] := box2HTML[f];
 box2HTML[RowBox[l_] ] := box2HTML[l];
-box2HTML[RadicalBox[x_, n_]] := {box2HTML[x], "<sup>1/", box2HTML[n], "</sup>"};
+box2HTML[RadicalBox[x_, n_]] := wrapMathML[{"<mroot>", "<mrow>", box2HTML[x], "</mrow>", "<mn>", box2HTML[n], "</mn>", "</mroot>"}];
 box2HTML[FractionBox[a_, b_]] := {"(", box2HTML[a], ")/(", box2HTML[b], ")"};
-box2HTML[SqrtBox[a_]] := {"&radic;(", box2HTML[a], ")"};
+box2HTML[SqrtBox[a_]] := wrapMathML[{"<msqrt>", box2HTML[a], "</msqrt>"}];
 box2HTML[CheckboxBox[False]] := {"&#x2610;"};
 box2HTML[CheckboxBox[___]] := {"&#x2611;"};
 box2HTML[OpenerBox[True]] := {"&#9662;"}; (* HTML char for triangle down *)
@@ -410,13 +415,13 @@ box2HTML[RadioButtonBox[a_, {a_}]] := {"&#x1F518;"}; (* HTML char for checked ra
 box2HTML[RadioButtonBox[___]] := {"&#9675;"}; (* HTML char for empty circle *)
 box2HTML[SubscriptBox[a_, b_]] := {box2HTML[a], "<sub>", box2HTML[b], "</sub>"};
 box2HTML[SuperscriptBox[a_, b_, ___]] := {box2HTML[a], "<sup>", box2HTML[b], "</sup>"};
-box2HTML[UnderscriptBox[a_, b_, ___]] := {"Underscript[", box2HTML[a], box2HTML[b], "]"};
-box2HTML[OverscriptBox[a_, b_, ___]] := {"Overscript[", box2HTML[a], box2HTML[b], "]"};
-box2HTML[UnderoverscriptBox[a_, b_, c_, ___]] := {"Underoverscript[", box2HTML[a], box2HTML[b], box2HTML[c], "]"};
-box2HTML[SubsuperscriptBox[a_, b_, c_, ___]] := wrapMathML@{"<msubsup>", "<mo>", box2HTML[a], "</mo>", "<mn>", box2HTML[b], "</mn>", "<mn>", box2HTML[c], "</mn>", "</msubsup>" };
+box2HTML[UnderscriptBox[a_, b_, ___]] := {box2HTML[a], "<sub>", box2HTML[b], "</sub>"};
+box2HTML[OverscriptBox[a_, b_, ___]] := {box2HTML[a], "<sup>", box2HTML[b], "</sup>"};
+box2HTML[UnderoverscriptBox[a_, b_, c_, ___]] := box2HTML[SubsuperscriptBox[a, b, c]];
+box2HTML[SubsuperscriptBox[a_, b_, c_, ___]] := wrapMathML[{"<msubsup>", "<mo>", box2HTML[a], "</mo>", "<mn>", box2HTML[b], "</mn>", "<mn>", box2HTML[c], "</mn>", "</msubsup>" }];
 box2HTML[TagBox[f_, __]] := box2HTML[f];
 box2HTML[TemplateBox[l_List, id_]] := {box2HTML[id], "[", box2HTML[l], "]"};
-box2HTML[GridBox[m_]] := wrapMathML@{"<mtable>", {"<mtr>", #, "</mtr>"}& /@ Map[{"<mtd>", box2HTML[#], "</mtd>"}&, box2HTML[m], {2}], "</mtable>"};
+box2HTML[GridBox[m_]] := wrapMathML[{"<mtable>", {"<mtr>", #, "</mtr>"}& /@ Map[{"<mtd>", box2HTML[#], "</mtd>"}&, box2HTML[m], {2}], "</mtable>"}];
 box2HTML[Cell[BoxData[data__], ___]] := box2HTML[{data}];
 box2HTML[TooltipBox[expr_, ___]] := box2HTML[expr];
 
@@ -432,13 +437,14 @@ processString["\[RightAssociation]"] = "|>";
 processString["\[LongEqual]"] = "==";
 processString["\[Null]"] = "";
 processString["\[InvisibleSpace]"] = "";
+processString["\[InvisibleApplication]"] = "";
 
 (* If it's a named character and in the public unicode range, we can transform it to the real representation *)
 (* So an \[alpha] is shown as a real alpha. Otherwise, we ensure it's rendered as \[name] *)
 processString[c_String /; StringLength[c] === 1 && namedCharacterQ[c]] := If[
   MemberQ[$publicUnicodeArea, First[ToCharacterCode[c]]],
-  ToString[c, MathMLForm],
-  ToString[c, InputForm, CharacterEncoding -> "PrintableASCII"]
+  "&#" <> ToString @@ ToCharacterCode[c] <> ";",
+  ExportString[c, "Text", CharacterEncoding -> "PrintableASCII"]
 ];
 processString[str_String] := str;
 processString[___] := Throw["Non-string argument in processString."];
@@ -491,7 +497,7 @@ createOnlineLink[symbol_String, context_String, checkUrl_] := Module[
 createOptionString[s_String] := With[{opts = getOptions[s]},
   If[opts === {},
     "<p><b>Symbol has no options.</b></p>",
-    "<p><b>Options: </b>" <> StringJoin@Riffle[ToString/@opts, ", "] <> "</p>"
+    "<p><b>Options: </b>" <> StringJoin@Riffle[ToString /@ opts, ", "] <> "</p>"
   ]
 ];
 
