@@ -401,12 +401,21 @@ box2HTML::usage = "box2HTML[boxes] attempts to convert the box-form of usage mes
 box2HTML[l_List] := box2HTML /@ l;
 box2HTML[str_String] := processString[str];
 box2HTML[str_String /; StringMatchQ[str, "\"\!\(\*" ~~ ___ ~~ "\)\""]] := "$BOXERROR$";
-box2HTML[StyleBox[f_, "TI" | FontSlant -> "Italic"]] := {"<em>", box2HTML[f], "</em>"};
+box2HTML[StyleBox[f_, "TI" | (FontSlant -> Italic) | (FontSlant -> "Italic")]] := {"<em>", box2HTML[f], "</em>"};
+box2HTML[StyleBox[str_String, ShowStringCharacters -> show_] /; Not[StringFreeQ[str, "\\\""]] && StringMatchQ[str, "\"" ~~ ___ ~~ "\""]] := With[
+  {
+    result = Quiet@FrontEndExecute[FrontEnd`ReparseBoxStructurePacket[StringReplace[str, {"\\\"" -> "\"", "\"" -> ""}]]]
+  },
+  If[TrueQ[show],
+    box2HTML[ { "\"", result , "\"" } ],
+    box2HTML[result]
+  ]
+];
 box2HTML[StyleBox[f_, ___]] := box2HTML[f];
 box2HTML[RowBox[l_] ] := box2HTML[l];
-box2HTML[RadicalBox[x_, n_]] := wrapMathML[{"<mroot>", "<mrow>", box2HTML[x], "</mrow>", "<mn>", box2HTML[n], "</mn>", "</mroot>"}];
+box2HTML[RadicalBox[x_, n_]] := {"(", box2HTML[x], ")", "^", "(1/", box2HTML[n], ")"};
 box2HTML[FractionBox[a_, b_]] := {"(", box2HTML[a], ")/(", box2HTML[b], ")"};
-box2HTML[SqrtBox[a_]] := wrapMathML[{"<msqrt>", box2HTML[a], "</msqrt>"}];
+box2HTML[SqrtBox[a_]] := {"&#8730;", "(", box2HTML[a], ")"};
 box2HTML[CheckboxBox[False]] := {"&#x2610;"};
 box2HTML[CheckboxBox[___]] := {"&#x2611;"};
 box2HTML[OpenerBox[True]] := {"&#9662;"}; (* HTML char for triangle down *)
@@ -418,15 +427,16 @@ box2HTML[SuperscriptBox[a_, b_, ___]] := {box2HTML[a], "<sup>", box2HTML[b], "</
 box2HTML[UnderscriptBox[a_, b_, ___]] := {box2HTML[a], "<sub>", box2HTML[b], "</sub>"};
 box2HTML[OverscriptBox[a_, b_, ___]] := {box2HTML[a], "<sup>", box2HTML[b], "</sup>"};
 box2HTML[UnderoverscriptBox[a_, b_, c_, ___]] := box2HTML[SubsuperscriptBox[a, b, c]];
-box2HTML[SubsuperscriptBox[a_, b_, c_, ___]] := wrapMathML[{"<msubsup>", "<mo>", box2HTML[a], "</mo>", "<mn>", box2HTML[b], "</mn>", "<mn>", box2HTML[c], "</mn>", "</msubsup>" }];
+box2HTML[SubsuperscriptBox[a_, b_, c_, ___]] := {box2HTML[a], "<sub>", box2HTML[b], "</sub>", "<sup>", box2HTML[c], "</sup>"};
 box2HTML[TagBox[f_, __]] := box2HTML[f];
 box2HTML[TemplateBox[l_List, id_]] := {box2HTML[id], "[", box2HTML[l], "]"};
-box2HTML[GridBox[m_]] := wrapMathML[{"<mtable>", {"<mtr>", #, "</mtr>"}& /@ Map[{"<mtd>", box2HTML[#], "</mtd>"}&, box2HTML[m], {2}], "</mtable>"}];
+box2HTML[GridBox[m_]] := {"<table>", {"<tr>", #, "</tr>"}& /@ Map[{"<td>", box2HTML[#], "</td>"}&, box2HTML[m], {2}], "</table>"};
 box2HTML[Cell[BoxData[data__], ___]] := box2HTML[{data}];
 box2HTML[TooltipBox[expr_, ___]] := box2HTML[expr];
 
 ClearAll[processString];
 PackageExport["processString"]
+processString["<>"] = "&lt;&gt;";
 processString[">"] = "&gt;";
 processString["<"] = "&lt;";
 processString["\[Rule]"] = "&rarr;";
