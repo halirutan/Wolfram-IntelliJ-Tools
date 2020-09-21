@@ -388,19 +388,19 @@ createBoxes[symbolName_String] := Module[
   ]
 ];
 
-$$insideMath = False;
-ClearAll[wrapMathML];
-PackageExport["wrapMathML"]
-SetAttributes[wrapMathML, {HoldFirst}];
-wrapMathML[l_List] /; Not[TrueQ[$$insideMath]] := Block[{$$insideMath = True}, Join[{"<math>"}, l, {"</math>"}]];
-wrapMathML[l_] := l;
-
 ClearAll[box2HTML];
 PackageExport["box2HTML"]
 box2HTML::usage = "box2HTML[boxes] attempts to convert the box-form of usage messages into renderable HTML/MathML code";
 box2HTML[l_List] := box2HTML /@ l;
+
+box2HTML[str_String /; StringMatchQ[str, "\"\\\"" ~~ ___ ]] := Module[
+  {
+    processed = StringTake[ToExpression[str], {2, -2}]
+  },
+  box2HTML[{ "\"", FrontEndExecute[FrontEnd`ReparseBoxStructurePacket[processed]], "\""}]
+];
+box2HTML[str_String /; StringMatchQ[str, "\!\(\*" ~~ ___ ~~ "\)"]] := "$BOXERROR$";
 box2HTML[str_String] := processString[str];
-box2HTML[str_String /; StringMatchQ[str, "\"\!\(\*" ~~ ___ ~~ "\)\""]] := "$BOXERROR$";
 box2HTML[StyleBox[f_, "TI" | (FontSlant -> Italic) | (FontSlant -> "Italic")]] := {"<em>", box2HTML[f], "</em>"};
 box2HTML[StyleBox[str_String, ShowStringCharacters -> show_] /; Not[StringFreeQ[str, "\\\""]] && StringMatchQ[str, "\"" ~~ ___ ~~ "\""]] := With[
   {
@@ -436,14 +436,16 @@ box2HTML[TooltipBox[expr_, ___]] := box2HTML[expr];
 
 ClearAll[processString];
 PackageExport["processString"]
+processString[","] = ",&thinsp;";
 processString["<>"] = "&lt;&gt;";
 processString[">"] = "&gt;";
 processString["<"] = "&lt;";
+processString["\[LeftAssociation]"] = "&lt;|";
+processString["\[RightAssociation]"] = "|&gt;";
 processString["\[Rule]"] = "&rarr;";
 processString["\[RuleDelayed]"] = ":>";
+processString["\[TwoWayRule]"] = "&lt;-&gt;";
 processString["\[Ellipsis]"] = "...";
-processString["\[LeftAssociation]"] = "<|";
-processString["\[RightAssociation]"] = "|>";
 processString["\[LongEqual]"] = "==";
 processString["\[Null]"] = "";
 processString["\[InvisibleSpace]"] = "";
@@ -540,11 +542,15 @@ CreateHTMLUsageString[s_String, context_String, OptionsPattern[]] := Module[
 ];
 
 PackageExport["CreateAllHtmlUsageMessages"]
-CreateAllHtmlUsageMessages[path_String] := Module[
+Options[CreateAllHtmlUsageMessages] = {
+  OverwriteTarget -> True
+};
+CreateAllHtmlUsageMessages[path_String, OptionsPattern[]] := Module[
   {
     outPath,
     context,
-    symbol
+    symbol,
+    overwriteQ = OptionValue[OverwriteTarget]
   },
   Do[
     (* Need an evaluate here or we get the context of the Do variable *)
@@ -560,7 +566,7 @@ CreateAllHtmlUsageMessages[path_String] := Module[
         file = FileNameJoin[{outPath, symbol <> ".html"}]
       },
       If[
-        Not[TrueQ@FileExistsQ[file]],
+        TrueQ[overwriteQ] || Not[TrueQ@FileExistsQ[file]],
         Check[
           With[{res = CreateHTMLUsageString[symbol, context]},
             Export[file, res[[2]], "Text"];
@@ -602,4 +608,7 @@ SaveDictionary[outputPath_String /; DirectoryQ[outputPath]] := Module[
   },
   names = Select[DeleteDuplicates@Sort[Flatten[getNames /@ Contexts[]]], Not[DictionaryWordQ[#]] &];
   Export[FileNameJoin[{outputPath, "WLDictionary.dic"}], names, "List"]
-]
+];
+
+PackageExport["CreateReducedRegex"]
+CreateReducedRegex[words : {String__}] := Utils`createReducedRegex[words];

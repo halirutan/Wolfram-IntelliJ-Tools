@@ -16,7 +16,7 @@ fun createReducedRegex(words: Array<String>): String {
 
 fun createReducedRegex(words: List<String>): String {
     val trie = Trie(words)
-    val builder = StringBuilder("\\\\\\[")
+    val builder = StringBuilder()
 
     fun visit(node: Node) {
         builder.append(node.content)
@@ -46,18 +46,18 @@ fun createReducedRegex(words: List<String>): String {
         }
     }
     visit(trie.root)
-    return builder.append(" \\]").toString()
+    return builder.toString().replace("$","\\$").trim()
 }
 
 
-private class Trie() {
+class Trie() {
     val root: Node = Node(' ')
 
     constructor(words: List<String>) : this() {
         words.forEach(::insert)
     }
 
-    private fun insert(word: String) {
+    fun insert(word: String) {
         if (contains(word) || !isValidKey(word)) return
         var current = root
         word.forEach { char ->
@@ -78,13 +78,13 @@ private class Trie() {
         return current.isWord
     }
 
-    private fun isValidKey(word: String): Boolean {
-        return word.isNotBlank() && word.matches(Regex("\\w+"))
+    fun isValidKey(word: String): Boolean {
+        return word.isNotBlank() && word.matches(Regex("(?:\\$|[a-zA-Z])[a-zA-Z0-9\$]*"))
     }
 }
 
 
-private class Node(val content: Char) {
+class Node(val content: Char) {
     val children: MutableMap<Char, Node> = hashMapOf()
     var isWord = false
 
