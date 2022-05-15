@@ -24,14 +24,14 @@ fun createReducedRegex(words: List<String>): String {
             val keys = node.children.keys.sorted()
             if (keys.size == 1) {
                 if (node.isWord) {
-                    builder.append("(")
+                    builder.append("(?:")
                     visit(node.children[keys[0]]!!)
                     builder.append(")?")
                 } else {
                     visit(node.children[keys[0]]!!)
                 }
             } else {
-                builder.append("(")
+                builder.append("(?:")
                 keys.forEachIndexed { id, c ->
                     visit(node.children[c]!!)
                     if (id < keys.size - 1) {

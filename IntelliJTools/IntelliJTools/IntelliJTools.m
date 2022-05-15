@@ -528,7 +528,13 @@ CreateHTMLUsageString[s_String, context_String, OptionsPattern[]] := Module[
   },
 
   {name, link} = createOnlineLink[s, context, OptionValue["CheckURL"]];
+  If[Count[usg, Except[_String]] =!= 0,
+    Print["Error converting: " <> context <> s];
+    (* Throw out everything that's not a string, because box2Html couldn't convert it *)
+    usg = Select[usg, (Head[#] === String)&]
+  ];
   htmlUsg = {"<li>", #, "</li>"}& /@ DeleteCases[SplitBy[usg, (# =!= "\n")&], {"\n"}];
+  (* If shit goes south with the boxes, there's nothing much we can do *)
   {name, StringJoin[Flatten@{
     "<h3>", link, "</h3>",
     "<ul>",
